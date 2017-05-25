@@ -1,0 +1,691 @@
+Index: build/win32/project/dummy.h
+===================================================================
+--- build/win32/project/dummy.h	(nonexistent)
++++ build/win32/project/dummy.h	(working copy)
+@@ -0,0 +1,6 @@
++#ifndef _DUMMY_H_
++#define _DUMMY_H_
++
++#define VER_FILEDESCRIPTION_STR		"dummy.dll"
++
++#endif
+
+Property changes on: build/win32/project/dummy.h
+___________________________________________________________________
+Added: svn:eol-style
+## -0,0 +1 ##
++native
+\ No newline at end of property
+Index: build/win32/project/Makefile_agent
+===================================================================
+--- build/win32/project/Makefile_agent	(revision 68521)
++++ build/win32/project/Makefile_agent	(working copy)
+@@ -55,6 +55,7 @@
+ 	..\..\..\src\libs\zbxsys\symbols.o \
+ 	..\..\..\src\libs\zbxsys\threads.o \
+ 	..\..\..\src\libs\zbxexec\execute.o \
++	..\..\..\src\libs\zbxmodules\modules.o \
+ 	..\..\..\src\libs\zbxsysinfo\agent\agent.o \
+ 	..\..\..\src\libs\zbxsysinfo\common\common.o \
+ 	..\..\..\src\libs\zbxsysinfo\common\cpu.o \
+Index: build/win32/project/Makefile_dummy
+===================================================================
+--- build/win32/project/Makefile_dummy	(nonexistent)
++++ build/win32/project/Makefile_dummy	(working copy)
+@@ -0,0 +1,6 @@
++PROGNAME = ..\..\..\bin\win32\dummy.dll
++INCS = /I .\ /I ..\include /I ..\..\..\include
++CFLAGS = $(INCS) /O2 /Ob1 /GF /FD /EHsc /MT /Gy /W3 /c /TC /D _WINDOWS /D _WIN32_WINNT=0x0500 /D _CONSOLE /D UNICODE /D _UNICODE /D NDEBUG /D WIN32 /D HAVE_WINLDAP_H /D HAVE_ASSERT_H /D ZABBIX_SERVICE /D "_VC80_UPGRADE=0x0600" /D HAVE_IPV6
++LFLAGS = /INCREMENTAL:NO /PDB:"dummy.pdb" /SUBSYSTEM:CONSOLE /DYNAMICBASE:NO /MACHINE:X64 /DLL
++
++include Makefile_dummy.inc
+Index: build/win32/project/Makefile_dummy.inc
+===================================================================
+--- build/win32/project/Makefile_dummy.inc	(nonexistent)
++++ build/win32/project/Makefile_dummy.inc	(working copy)
+@@ -0,0 +1,21 @@
++CC = cl.exe /nologo
++LINKER = link.exe /NOLOGO
++RC = rc.exe /d "DUMMY" /d _WINDOWS
++MC = mc.exe
++MT = mt.exe
++DESC_H = dummy.h
++OBJS  = ..\..\..\src\modules\dummyWin\dummy.o
++
++LIBS = ws2_32.lib psapi.lib pdh.lib Wldap32.lib advapi32.lib uuid.lib Iphlpapi.lib
++
++all: $(PROGNAME)
++
++clean:
++	del $(OBJS) $(RESOURCE_RES) $(MESSAGES_H) $(PROGNAME) messages.rc MSG00001.bin zabbix_get.exe.manifest
++
++$(PROGNAME): $(MESSAGES_H) $(OBJS) $(RESOURCE_RES)
++	$(LINKER) $(OBJS) $(RESOURCE_RES) /OUT:$(PROGNAME) $(LFLAGS) $(LIBS)
++	$(MT) /outputresource:"$(PROGNAME);#1"  /nologo
++
++..\..\..\src\modules\dummyWin\dummy.o: ..\..\..\src\modules\dummyWin\dummy.c
++	$(CC) ..\..\..\src\modules\dummyWin\dummy.c /Fo"..\..\..\src\modules\dummyWin\dummy.o" $(CFLAGS)
+
+Property changes on: build/win32/project/Makefile_dummy.inc
+___________________________________________________________________
+Added: svn:eol-style
+## -0,0 +1 ##
++native
+\ No newline at end of property
+Index: build/win32/project/Makefile_targets.inc
+===================================================================
+--- build/win32/project/Makefile_targets.inc	(revision 68521)
++++ build/win32/project/Makefile_targets.inc	(working copy)
+@@ -49,9 +49,12 @@
+ {..\..\..\src\libs\zbxsysinfo}.c{..\..\..\src\libs\zbxsysinfo}.o:
+ 	$(CC) $? /Fo"$@" $(CFLAGS)
+ 
++{..\..\..\src\libs\zbxmodules}.c{..\..\..\src\libs\zbxmodules}.o:
++	$(CC) $? /Fo"$@" $(CFLAGS)
++
+ {..\..\..\src\libs\zbxsysinfo\agent}.c{..\..\..\src\libs\zbxsysinfo\agent}.o:
+ 	$(CC) $? /Fo"$@" $(CFLAGS)
+-
++	
+ {..\..\..\src\libs\zbxsysinfo\simple}.c{..\..\..\src\libs\zbxsysinfo\simple}.o:
+ 	$(CC) $? /Fo"$@" $(CFLAGS)
+ 
+Index: src/libs/zbxmodules/modules.c
+===================================================================
+--- src/libs/zbxmodules/modules.c	(revision 68521)
++++ src/libs/zbxmodules/modules.c	(working copy)
+@@ -25,6 +25,35 @@
+ #include "sysinfo.h"
+ #include "zbxalgo.h"
+ 
++#ifdef _WINDOWS
++#include <windows.h>
++#define RTLD_NOW 2
++
++void *dlopen(const char* filename, int flag)
++{
++	return (void*)LoadLibraryA(filename);
++}
++
++void dlclose(void* handle)
++{
++	FreeLibrary((HINSTANCE)handle);
++}
++
++char* dlerror(void)
++{
++	LPSTR pBuffer = NULL;
++
++	FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(), 0, pBuffer, 0, NULL);
++	
++	return (char *)pBuffer;
++}
++
++void* dlsym(void* handle, const char* symbol)
++{
++	return (void*)GetProcAddress((HINSTANCE)handle, symbol);
++}
++#endif
++
+ #define ZBX_MODULE_FUNC_INIT			"zbx_module_init"
+ #define ZBX_MODULE_FUNC_API_VERSION		"zbx_module_api_version"
+ #define ZBX_MODULE_FUNC_ITEM_LIST		"zbx_module_item_list"
+@@ -235,7 +264,11 @@
+ 	ZBX_HISTORY_WRITE_CBS	(*func_history_write_cbs)(void);
+ 	zbx_module_t		*module, module_tmp;
+ 
+-	zbx_snprintf(full_name, sizeof(full_name), "%s/%s", path, name);
++#ifdef _WINDOWS
++	zbx_snprintf(full_name, sizeof(full_name), "%s\\%s", path, name);
++#else
++	zbx_snprintf(full_name, sizeof(full_name), "%s/%s", path, name)
++#endif
+ 
+ 	zabbix_log(LOG_LEVEL_DEBUG, "loading module \"%s\"", full_name);
+ 
+Index: src/modules/dummyWin/dummy.c
+===================================================================
+--- src/modules/dummyWin/dummy.c	(nonexistent)
++++ src/modules/dummyWin/dummy.c	(working copy)
+@@ -0,0 +1,201 @@
++/*
++** Zabbix
++** Copyright (C) 2001-2014 Zabbix SIA
++**
++** This program is free software; you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation; either version 2 of the License, or
++** (at your option) any later version.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++** GNU General Public License for more details.
++**
++** You should have received a copy of the GNU General Public License
++** along with this program; if not, write to the Free Software
++** Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++**/
++
++#include "sysinc.h"
++#include "module.h"
++#include "zbxjson.h"
++#include <windows.h>
++/* the variable keeps timeout setting for item processing */
++static int	item_timeout = 0;
++
++__declspec(dllexport)  int	zbx_module_dummy_ping(AGENT_REQUEST *request, AGENT_RESULT *result);
++__declspec(dllexport)  int	zbx_module_dummy_echo(AGENT_REQUEST *request, AGENT_RESULT *result);
++__declspec(dllexport)  int	zbx_module_dummy_random(AGENT_REQUEST *request, AGENT_RESULT *result);
++
++static ZBX_METRIC keys[] =
++/*      KEY                     FLAG		FUNCTION        	TEST PARAMETERS */
++{
++	{"dummy.ping",		0,		zbx_module_dummy_ping,	NULL},
++	{"dummy.echo",		CF_HAVEPARAMS,	zbx_module_dummy_echo, 	"a message"},
++	{"dummy.random",	CF_HAVEPARAMS,	zbx_module_dummy_random,"1,1000"},
++	{NULL}
++};
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_api_version                                           *
++ *                                                                            *
++ * Purpose: returns version number of the module interface                    *
++ *                                                                            *
++ * Return value: ZBX_MODULE_API_VERSION_ONE - the only version supported by   *
++ *               Zabbix currently                                             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_api_version()
++{
++	return ZBX_MODULE_API_VERSION_ONE;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_item_timeout                                          *
++ *                                                                            *
++ * Purpose: set timeout value for processing of items                         *
++ *                                                                            *
++ * Parameters: timeout - timeout in seconds, 0 - no timeout set               *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) void	zbx_module_item_timeout(int timeout)
++{
++	item_timeout = timeout;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_item_list                                             *
++ *                                                                            *
++ * Purpose: returns list of item keys supported by the module                 *
++ *                                                                            *
++ * Return value: list of item keys                                            *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) ZBX_METRIC	*zbx_module_item_list()
++{
++	return keys;
++}
++
++__declspec(dllexport) int	zbx_module_dummy_ping(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	SET_UI64_RESULT(result, 1);
++
++	return SYSINFO_RET_OK;
++}
++
++__declspec(dllexport) int	zbx_module_dummy_echo(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	char	*param;
++
++	if (1 != request->nparam)
++	{
++		/* set optional error message */
++		SET_MSG_RESULT(result, _strdup("Invalid number of parameters"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	
++	param = get_rparam(request, 0);
++
++	struct zbx_json json;
++	zbx_json_init(&json, ZBX_JSON_STAT_BUF_LEN);
++	
++	SET_STR_RESULT(result, _strdup(param));
++
++	return SYSINFO_RET_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_dummy_random                                          *
++ *                                                                            *
++ * Purpose: a main entry point for processing of an item                      *
++ *                                                                            *
++ * Parameters: request - structure that contains item key and parameters      *
++ *              request->key - item key without parameters                    *
++ *              request->nparam - number of parameters                        *
++ *              request->timeout - processing should not take longer than     *
++ *                                 this number of seconds                     *
++ *              request->params[N-1] - pointers to item key parameters        *
++ *                                                                            *
++ *             result - structure that will contain result                    *
++ *                                                                            *
++ * Return value: SYSINFO_RET_FAIL - function failed, item will be marked      *
++ *                                 as not supported by zabbix                 *
++ *               SYSINFO_RET_OK - success                                     *
++ *                                                                            *
++ * Comment: get_rparam(request, N-1) can be used to get a pointer to the Nth  *
++ *          parameter starting from 0 (first parameter). Make sure it exists  *
++ *          by checking value of request->nparam.                             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_dummy_random(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	char	*param1, *param2;
++	int	from, to;
++
++	if (request->nparam != 2)
++	{
++		/* set optional error message */
++		SET_MSG_RESULT(result, _strdup("Invalid number of parameters"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	param1 = get_rparam(request, 0);
++	param2 = get_rparam(request, 1);
++
++	/* there is no strict validation of parameters for simplicity sake */
++	from = atoi(param1);
++	to = atoi(param2);
++
++	if (from > to)
++	{
++		SET_MSG_RESULT(result, _strdup("Incorrect range given"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	SET_UI64_RESULT(result, from + rand() % (to - from + 1));
++
++	return SYSINFO_RET_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_init                                                  *
++ *                                                                            *
++ * Purpose: the function is called on agent startup                           *
++ *          It should be used to call any initialization routines             *
++ *                                                                            *
++ * Return value: ZBX_MODULE_OK - success                                      *
++ *               ZBX_MODULE_FAIL - module initialization failed               *
++ *                                                                            *
++ * Comment: the module won't be loaded in case of ZBX_MODULE_FAIL             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_init()
++{
++	/* initialization for dummy.random */
++	srand(time(NULL));
++
++	return ZBX_MODULE_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_uninit                                                *
++ *                                                                            *
++ * Purpose: the function is called on agent shutdown                          *
++ *          It should be used to cleanup used resources if there are any      *
++ *                                                                            *
++ * Return value: ZBX_MODULE_OK - success                                      *
++ *               ZBX_MODULE_FAIL - function failed                            *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_uninit()
++{
++	return ZBX_MODULE_OK;
++}
+
+Property changes on: src/modules/dummyWin/dummy.c
+___________________________________________________________________
+Added: svn:eol-style
+## -0,0 +1 ##
++native
+\ No newline at end of property
+Index: src/modules/dummyWin/dummy.c
+===================================================================
+--- src/modules/dummyWin/dummy.c	(nonexistent)
++++ src/modules/dummyWin/dummy.c	(working copy)
+@@ -0,0 +1,201 @@
++/*
++** Zabbix
++** Copyright (C) 2001-2014 Zabbix SIA
++**
++** This program is free software; you can redistribute it and/or modify
++** it under the terms of the GNU General Public License as published by
++** the Free Software Foundation; either version 2 of the License, or
++** (at your option) any later version.
++**
++** This program is distributed in the hope that it will be useful,
++** but WITHOUT ANY WARRANTY; without even the implied warranty of
++** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
++** GNU General Public License for more details.
++**
++** You should have received a copy of the GNU General Public License
++** along with this program; if not, write to the Free Software
++** Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++**/
++
++#include "sysinc.h"
++#include "module.h"
++#include "zbxjson.h"
++#include <windows.h>
++/* the variable keeps timeout setting for item processing */
++static int	item_timeout = 0;
++
++__declspec(dllexport)  int	zbx_module_dummy_ping(AGENT_REQUEST *request, AGENT_RESULT *result);
++__declspec(dllexport)  int	zbx_module_dummy_echo(AGENT_REQUEST *request, AGENT_RESULT *result);
++__declspec(dllexport)  int	zbx_module_dummy_random(AGENT_REQUEST *request, AGENT_RESULT *result);
++
++static ZBX_METRIC keys[] =
++/*      KEY                     FLAG		FUNCTION        	TEST PARAMETERS */
++{
++	{"dummy.ping",		0,		zbx_module_dummy_ping,	NULL},
++	{"dummy.echo",		CF_HAVEPARAMS,	zbx_module_dummy_echo, 	"a message"},
++	{"dummy.random",	CF_HAVEPARAMS,	zbx_module_dummy_random,"1,1000"},
++	{NULL}
++};
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_api_version                                           *
++ *                                                                            *
++ * Purpose: returns version number of the module interface                    *
++ *                                                                            *
++ * Return value: ZBX_MODULE_API_VERSION_ONE - the only version supported by   *
++ *               Zabbix currently                                             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_api_version()
++{
++	return ZBX_MODULE_API_VERSION_ONE;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_item_timeout                                          *
++ *                                                                            *
++ * Purpose: set timeout value for processing of items                         *
++ *                                                                            *
++ * Parameters: timeout - timeout in seconds, 0 - no timeout set               *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) void	zbx_module_item_timeout(int timeout)
++{
++	item_timeout = timeout;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_item_list                                             *
++ *                                                                            *
++ * Purpose: returns list of item keys supported by the module                 *
++ *                                                                            *
++ * Return value: list of item keys                                            *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) ZBX_METRIC	*zbx_module_item_list()
++{
++	return keys;
++}
++
++__declspec(dllexport) int	zbx_module_dummy_ping(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	SET_UI64_RESULT(result, 1);
++
++	return SYSINFO_RET_OK;
++}
++
++__declspec(dllexport) int	zbx_module_dummy_echo(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	char	*param;
++
++	if (1 != request->nparam)
++	{
++		/* set optional error message */
++		SET_MSG_RESULT(result, _strdup("Invalid number of parameters"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	
++	param = get_rparam(request, 0);
++
++	struct zbx_json json;
++	zbx_json_init(&json, ZBX_JSON_STAT_BUF_LEN);
++	
++	SET_STR_RESULT(result, _strdup(param));
++
++	return SYSINFO_RET_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_dummy_random                                          *
++ *                                                                            *
++ * Purpose: a main entry point for processing of an item                      *
++ *                                                                            *
++ * Parameters: request - structure that contains item key and parameters      *
++ *              request->key - item key without parameters                    *
++ *              request->nparam - number of parameters                        *
++ *              request->timeout - processing should not take longer than     *
++ *                                 this number of seconds                     *
++ *              request->params[N-1] - pointers to item key parameters        *
++ *                                                                            *
++ *             result - structure that will contain result                    *
++ *                                                                            *
++ * Return value: SYSINFO_RET_FAIL - function failed, item will be marked      *
++ *                                 as not supported by zabbix                 *
++ *               SYSINFO_RET_OK - success                                     *
++ *                                                                            *
++ * Comment: get_rparam(request, N-1) can be used to get a pointer to the Nth  *
++ *          parameter starting from 0 (first parameter). Make sure it exists  *
++ *          by checking value of request->nparam.                             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_dummy_random(AGENT_REQUEST *request, AGENT_RESULT *result)
++{
++	char	*param1, *param2;
++	int	from, to;
++
++	if (request->nparam != 2)
++	{
++		/* set optional error message */
++		SET_MSG_RESULT(result, _strdup("Invalid number of parameters"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	param1 = get_rparam(request, 0);
++	param2 = get_rparam(request, 1);
++
++	/* there is no strict validation of parameters for simplicity sake */
++	from = atoi(param1);
++	to = atoi(param2);
++
++	if (from > to)
++	{
++		SET_MSG_RESULT(result, _strdup("Incorrect range given"));
++		return SYSINFO_RET_FAIL;
++	}
++
++	SET_UI64_RESULT(result, from + rand() % (to - from + 1));
++
++	return SYSINFO_RET_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_init                                                  *
++ *                                                                            *
++ * Purpose: the function is called on agent startup                           *
++ *          It should be used to call any initialization routines             *
++ *                                                                            *
++ * Return value: ZBX_MODULE_OK - success                                      *
++ *               ZBX_MODULE_FAIL - module initialization failed               *
++ *                                                                            *
++ * Comment: the module won't be loaded in case of ZBX_MODULE_FAIL             *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_init()
++{
++	/* initialization for dummy.random */
++	srand(time(NULL));
++
++	return ZBX_MODULE_OK;
++}
++
++/******************************************************************************
++ *                                                                            *
++ * Function: zbx_module_uninit                                                *
++ *                                                                            *
++ * Purpose: the function is called on agent shutdown                          *
++ *          It should be used to cleanup used resources if there are any      *
++ *                                                                            *
++ * Return value: ZBX_MODULE_OK - success                                      *
++ *               ZBX_MODULE_FAIL - function failed                            *
++ *                                                                            *
++ ******************************************************************************/
++__declspec(dllexport) int	zbx_module_uninit()
++{
++	return ZBX_MODULE_OK;
++}
+
+Property changes on: src/modules/dummyWin/dummy.c
+___________________________________________________________________
+Added: svn:eol-style
+## -0,0 +1 ##
++native
+\ No newline at end of property
+Index: src/zabbix_agent/zabbix_agentd.c
+===================================================================
+--- src/zabbix_agent/zabbix_agentd.c	(revision 68521)
++++ src/zabbix_agent/zabbix_agentd.c	(working copy)
+@@ -28,9 +28,9 @@
+ 
+ #ifndef _WINDOWS
+ #	include "../libs/zbxnix/control.h"
+-#	include "zbxmodules.h"
+ #endif
+ 
++#include "zbxmodules.h"
+ #include "comms.h"
+ #include "alias.h"
+ 
+@@ -517,10 +517,14 @@
+ 				CONFIG_HOST_METADATA);
+ 	}
+ 
+-#ifndef _WINDOWS
+ 	if (NULL == CONFIG_LOAD_MODULE_PATH)
++#ifdef _WINDOWS
++		CONFIG_LOAD_MODULE_PATH = zbx_strdup(CONFIG_LOAD_MODULE_PATH, ".\\modules");
++#else
+ 		CONFIG_LOAD_MODULE_PATH = zbx_strdup(CONFIG_LOAD_MODULE_PATH, LIBDIR "/modules");
++#endif
+ 
++#ifndef _WINDOWS
+ 	if (NULL == CONFIG_PID_FILE)
+ 		CONFIG_PID_FILE = "/tmp/zabbix_agentd.pid";
+ #endif
+@@ -611,6 +615,7 @@
+ 	}
+ 
+ 	CONFIG_ACTIVE_FORKS++;
++
+ 	CONFIG_ACTIVE_ARGS = zbx_realloc(CONFIG_ACTIVE_ARGS, sizeof(ZBX_THREAD_ACTIVECHK_ARGS) * CONFIG_ACTIVE_FORKS);
+ 	CONFIG_ACTIVE_ARGS[CONFIG_ACTIVE_FORKS - 1].host = zbx_strdup(NULL, host);
+ 	CONFIG_ACTIVE_ARGS[CONFIG_ACTIVE_FORKS - 1].port = port;
+@@ -738,11 +743,11 @@
+ 			PARM_OPT,	0,			0},
+ 		{"UserParameter",		&CONFIG_USER_PARAMETERS,		TYPE_MULTISTRING,
+ 			PARM_OPT,	0,			0},
+-#ifndef _WINDOWS
+ 		{"LoadModulePath",		&CONFIG_LOAD_MODULE_PATH,		TYPE_STRING,
+ 			PARM_OPT,	0,			0},
+ 		{"LoadModule",			&CONFIG_LOAD_MODULE,			TYPE_MULTISTRING,
+ 			PARM_OPT,	0,			0},
++#ifndef _WINDOWS
+ 		{"AllowRoot",			&CONFIG_ALLOW_ROOT,			TYPE_INT,
+ 			PARM_OPT,	0,			1},
+ 		{"User",			&CONFIG_USER,				TYPE_STRING,
+@@ -778,9 +783,7 @@
+ 	/* initialize multistrings */
+ 	zbx_strarr_init(&CONFIG_ALIASES);
+ 	zbx_strarr_init(&CONFIG_USER_PARAMETERS);
+-#ifndef _WINDOWS
+ 	zbx_strarr_init(&CONFIG_LOAD_MODULE);
+-#endif
+ #ifdef _WINDOWS
+ 	zbx_strarr_init(&CONFIG_PERF_COUNTERS);
+ #endif
+@@ -817,9 +820,7 @@
+ {
+ 	zbx_strarr_free(CONFIG_ALIASES);
+ 	zbx_strarr_free(CONFIG_USER_PARAMETERS);
+-#ifndef _WINDOWS
+ 	zbx_strarr_free(CONFIG_LOAD_MODULE);
+-#endif
+ #ifdef _WINDOWS
+ 	zbx_strarr_free(CONFIG_PERF_COUNTERS);
+ #endif
+@@ -897,13 +898,11 @@
+ 		exit(EXIT_FAILURE);
+ 	}
+ #endif
+-#ifndef _WINDOWS
+ 	if (FAIL == zbx_load_modules(CONFIG_LOAD_MODULE_PATH, CONFIG_LOAD_MODULE, CONFIG_TIMEOUT, 1))
+ 	{
+ 		zabbix_log(LOG_LEVEL_CRIT, "loading modules failed, exiting...");
+ 		exit(EXIT_FAILURE);
+ 	}
+-#endif
+ 	if (0 != CONFIG_PASSIVE_FORKS)
+ 	{
+ 		if (FAIL == zbx_tcp_listen(&listen_sock, CONFIG_LISTEN_IP, (unsigned short)CONFIG_LISTEN_PORT))
+@@ -1062,9 +1061,7 @@
+ 	free_perf_collector();
+ 	zbx_co_uninitialize();
+ #endif
+-#ifndef _WINDOWS
+ 	zbx_unload_modules();
+-#endif
+ 	zabbix_log(LOG_LEVEL_INFORMATION, "Zabbix Agent stopped. Zabbix %s (revision %s).",
+ 			ZABBIX_VERSION, ZABBIX_REVISION);
+ 
+@@ -1157,13 +1154,11 @@
+ #else
+ 			zbx_set_common_signal_handlers();
+ #endif
+-#ifndef _WINDOWS
+ 			if (FAIL == zbx_load_modules(CONFIG_LOAD_MODULE_PATH, CONFIG_LOAD_MODULE, CONFIG_TIMEOUT, 0))
+ 			{
+ 				zabbix_log(LOG_LEVEL_CRIT, "loading modules failed, exiting...");
+ 				exit(EXIT_FAILURE);
+ 			}
+-#endif
+ 			load_user_parameters(CONFIG_USER_PARAMETERS);
+ 			load_aliases(CONFIG_ALIASES);
+ 			zbx_free_config();
+@@ -1174,9 +1169,7 @@
+ #ifdef _WINDOWS
+ 			free_perf_collector();	/* cpu_collector must be freed before perf_collector is freed */
+ #endif
+-#ifndef _WINDOWS
+ 			zbx_unload_modules();
+-#endif
+ 			free_metrics();
+ 			alias_list_free();
+ 			exit(EXIT_SUCCESS);
